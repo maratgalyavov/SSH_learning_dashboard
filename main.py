@@ -8,11 +8,26 @@ from aiogram.filters import Command
 import paramiko
 import asyncio
 
+import pandas as pd
+import matplotlib.pyplot as plt
+
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, InputFile, FSInputFile
 
+from save_load_data import save_connection_details, load_connection_details
+
+#инлайн графики через веб страницу матплотлиб
+#сохраняем путь папку которую надо мониторить и парсим логи (csv, txt, log)
+#проверяем раз в секунду пока не выявим дельту затем проверяем раз в эту дельту
+#спрашиваем что выводить на график, присылаем раз в апдейт
+
+
 API_TOKEN = '6845365315:AAEjLspSJ7X8wQot7NnE3zO27y20Mxscfqg'
+
+user_ssh_clients = {}
+
+saved_connection_details = load_connection_details()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,11 +35,13 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 router = Router()
 
-# SSH client
-ssh_client = None
 
 class CommandState(StatesGroup):
     waiting_for_command = State()
+    awaiting_password = State()
+    setting_monitoring_path = State()
+    monitoring = State()
+
 
 # Helper functions
 async def upload_file(ssh_client, local_path, remote_path):
@@ -103,13 +120,42 @@ async def send_welcome(message: types.Message):
 
 
 @router.message(Command(commands=['connect']))
-async def connect_ssh(message: types.Message):
-    await message.answer("Введите данные для подключения в формате: host username password, port(опционально)")
+async def connect_ssh(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if str(user_id) in saved_connection_details:
+        await state.set_state(CommandState.awaiting_password)
+        await message.answer("Введите ваш пароль для подключения:")
+    else:
+        await message.answer("Введите данные для подключения в формате: host username password, port(опционально)")
 
+@router.message(CommandState.awaiting_password)
+async def process_password(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    password = message.text
+    await state.clear()
 
-@router.message(lambda message: message.text and ' ' in message.text and ssh_client is None)
+    # Retrieve saved connection details
+    if str(user_id) in saved_connection_details:
+        details = saved_connection_details[str(user_id)]
+        host = details['host']
+        username = details['username']
+        port = details.get('port', 22)
+
+        # Attempt to connect
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh_client.connect(hostname=host, username=username, password=password, port=port)
+            user_ssh_clients[user_id] = ssh_client
+            await message.answer("Успешное подключение к серверу.")
+        except Exception as e:
+            await message.answer(f"Ошибка подключения: {e}")
+    else:
+        await message.answer("Нет сохраненных данных подключения. Пожалуйста, используйте команду /connect для настройки.")
+
+@router.message(lambda message: message.text and ' ' in message.text and message.from_user.id not in user_ssh_clients)
 async def process_connect_command(message: types.Message):
-    global ssh_client
+    user_id = message.from_user.id
     try:
         parts = message.text.split(' ', 3)
         host, username, password = parts[:3]
@@ -120,31 +166,56 @@ async def process_connect_command(message: types.Message):
 
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
     try:
         ssh_client.connect(hostname=host, username=username, password=password, port=port)
+        user_ssh_clients[user_id] = ssh_client
         await message.answer("Успешное подключение к серверу.")
+        # Save connection details without the password for later re-authentication
+        save_connection_details(user_id, host, username, port)
     except Exception as e:
         await message.answer(f"Ошибка подключения: {e}")
 
-
 @router.message(Command(commands=['disconnect']))
 async def disconnect_ssh(message: types.Message):
-    global ssh_client
-    if ssh_client:
-        ssh_client.close()
-        ssh_client = None
+    user_id = message.from_user.id
+    if user_id in user_ssh_clients:
+        user_ssh_clients[user_id].close()
+        del user_ssh_clients[user_id]  # Remove the SSH client from the dictionary
         await message.answer("Отключение от сервера выполнено.")
     else:
         await message.answer("Соединение не установлено.")
 
 
+@router.message(Command(commands=['set_monitoring']))
+async def set_monitoring_path(message: types.Message, state: FSMContext):
+    await state.set_state(CommandState.setting_monitoring_path)
+    await message.answer("Please enter the full path of the file to monitor:")
+
+@router.message(CommandState.setting_monitoring_path)
+async def process_monitoring_path(message: types.Message, state: FSMContext):
+    monitoring_path = message.text
+    user_id = message.from_user.id
+    saved_connection_details[str(user_id)]['monitoring_path'] = monitoring_path
+    await state.clear()
+    await message.answer(f"Monitoring path set to: {monitoring_path}. Use /start_monitoring to begin.")
+
+@router.message(Command(commands=['start_monitoring']))
+async def start_monitoring(message: types.Message):
+    user_id = message.from_user.id
+    if str(user_id) not in saved_connection_details or 'monitoring_path' not in saved_connection_details[str(user_id)]:
+        await message.answer("Monitoring path not set. Use /set_monitoring first.")
+        return
+    monitoring_path = saved_connection_details[str(user_id)]['monitoring_path']
+    asyncio.create_task(monitor_file(user_id, monitoring_path))
+    await message.answer("Started monitoring.")
+
 @router.message(Command(commands=['execute']))
 async def execute_command(message: types.Message, state: FSMContext):
-    global ssh_client
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
+    ssh_client = user_ssh_clients[user_id]
     await state.set_state(CommandState.waiting_for_command)
     await message.answer("Введите команду для выполнения:")
 
@@ -159,6 +230,8 @@ async def process_execute_command(message: types.Message, state: FSMContext):
     await state.clear()
 
     try:
+        user_id = message.from_user.id
+        ssh_client = user_ssh_clients[user_id]
         stdin, stdout, stderr = ssh_client.exec_command(command)
         output = stdout.read().decode('utf-8').strip()
         error = stderr.read().decode('utf-8').strip()
@@ -171,13 +244,13 @@ async def process_execute_command(message: types.Message, state: FSMContext):
 
 @router.message(Command(commands=['upload']))
 async def upload_file_command(message: types.Message):
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
     await message.answer("Отправьте файл который хотите загрузить")
 
 
-import logging
 
 
 @router.message(F.document)
@@ -202,6 +275,8 @@ async def process_upload_file_command(message: Message):
         logging.info(f"File downloaded locally to {file_path}")
 
         if os.path.exists(file_path):
+            user_id = message.from_user.id
+            ssh_client = user_ssh_clients[user_id]
             logging.info(f"File {file_name} exists, ready to upload.")
             remote_path = f'{file_name}'  # Modify as needed
             response = await upload_file(ssh_client, file_path, remote_path)
@@ -219,19 +294,24 @@ async def process_upload_file_command(message: Message):
 
 @router.message(Command(commands=['download']))
 async def download_file_command(message: types.Message):
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
+    ssh_client = user_ssh_clients[user_id]
     await message.answer("Введите путь к файлу на сервере, который хотите скачать:")
 
 
-@router.message(lambda message: message.text and not message.text.startswith('/') and ssh_client is not None)
+@router.message(lambda message: message.text and not message.text.startswith('/') and message.from_user.id in user_ssh_clients)
 async def process_download_file_command(message: types.Message):
     remote_file_path = message.text
     local_file_path = f'./downloads/{remote_file_path.split("/")[-1]}'
 
     os.makedirs('./downloads', exist_ok=True)
 
+    user_id = message.from_user.id
+
+    ssh_client = user_ssh_clients[user_id]
     response = await download_file(ssh_client, remote_file_path, local_file_path)
     if "успешно" in response:
         document = FSInputFile(local_file_path)
@@ -242,24 +322,30 @@ async def process_download_file_command(message: types.Message):
 
 @router.message(Command(commands=['submit_job']))
 async def submit_job_command(message: types.Message):
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
+    ssh_client = user_ssh_clients[user_id]
     await message.answer("Введите путь к скрипту задачи на сервере:")
 
 
-@router.message(lambda message: message.text and not message.text.startswith('/') and ssh_client is not None)
+@router.message(lambda message: message.text and not message.text.startswith('/') and message.from_user.id in user_ssh_clients)
 async def process_submit_job_command(message: types.Message):
     job_script_path = message.text
+    user_id = message.from_user.id
+    ssh_client = user_ssh_clients[user_id]
     response = await submit_job(ssh_client, job_script_path)
     await message.answer(response)
 
 
 @router.message(Command(commands=['show_queue']))
 async def show_queue_command(message: types.Message):
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
+    ssh_client = user_ssh_clients[user_id]
     response = await show_queue(ssh_client)
     max_length = 4000
     if len(response) > max_length:
@@ -269,9 +355,11 @@ async def show_queue_command(message: types.Message):
 
 @router.message(Command(commands=['cancel_job']))
 async def cancel_job_command(message: types.Message):
-    if not ssh_client:
+    user_id = message.from_user.id
+    if user_id not in user_ssh_clients:
         await message.answer("Сначала подключитесь к серверу.")
         return
+    ssh_client = user_ssh_clients[user_id]
     job_id = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
     if job_id:
         response = await cancel_job(ssh_client, job_id)
