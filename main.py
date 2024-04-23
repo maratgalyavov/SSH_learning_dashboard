@@ -15,17 +15,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, InputFile, FSInputFile
 
-from save_load_data import save_connection_details, load_connection_details
+from functions.save_load_data import save_connection_details, load_connection_details
+from functions.monitor import monitor_file
 
 #инлайн графики через веб страницу матплотлиб
 #сохраняем путь папку которую надо мониторить и парсим логи (csv, txt, log)
 #проверяем раз в секунду пока не выявим дельту затем проверяем раз в эту дельту
 #спрашиваем что выводить на график, присылаем раз в апдейт
 
-
-API_TOKEN = '6845365315:AAEjLspSJ7X8wQot7NnE3zO27y20Mxscfqg'
-
-user_ssh_clients = {}
+from config import API_TOKEN
+from config import user_ssh_clients
+from config import monitoring_tasks
+from functions.file_handling import upload_file, download_file
 
 saved_connection_details = load_connection_details()
 
@@ -44,79 +45,40 @@ class CommandState(StatesGroup):
 
 
 # Helper functions
-async def upload_file(ssh_client, local_path, remote_path):
-    try:
-        if os.path.exists(local_path):
-            logging.info(f"Confirmed that {local_path} exists. Proceeding with upload.")
-        else:
-            return f"Error: File {local_path} was not found locally."
-
-        sftp = ssh_client.open_sftp()
-        logging.info(f"Uploading {local_path} to {remote_path}")
-        sftp.put(local_path, remote_path)
-        sftp.close()
-        return "Файл успешно загружен."
-    except FileNotFoundError as e:
-        logging.error(f"FileNotFoundError: {e}")
-        return f"Ошибка при загрузке файла: Локальный файл не найден - {e}"
-    except Exception as e:
-        logging.error(f"Exception in upload_file: {e}")
-        return f"Ошибка при загрузке файла: {e}"
+from functions.misc import is_connected
+from functions.scheduler_interface import submit_job, show_queue, cancel_job
 
 
-
-
-async def download_file(ssh_client, remote_path, local_path):
-    try:
-        sftp = ssh_client.open_sftp()
-        sftp.get(remote_path, local_path)
-        sftp.close()
-        return "Файл успешно скачан."
-    except Exception as e:
-        return f"Ошибка при скачивании файла: {e}"
-
-
-async def submit_job(ssh_client, job_script):
-    try:
-        stdin, stdout, stderr = ssh_client.exec_command(f'sbatch {job_script}')
-        output = stdout.read().decode('utf-8').strip()
-        error = stderr.read().decode('utf-8').strip()
-        return output or error or "Задача отправлена на выполнение."
-    except Exception as e:
-        return f"Ошибка при отправке задачи: {e}"
-
-
-async def show_queue(ssh_client):
-    try:
-        stdin, stdout, stderr = ssh_client.exec_command('squeue')
-        output = stdout.read().decode('utf-8').strip()
-        return output or "Очередь задач пуста."
-    except Exception as e:
-        return f"Ошибка при просмотре очереди задач: {e}"
-
-
-async def cancel_job(ssh_client, job_id):
-    try:
-        stdin, stdout, stderr = ssh_client.exec_command(f'scancel {job_id}')
-        output = stdout.read().decode('utf-8').strip()
-        return output or "Задача отменена."
-    except Exception as e:
-        return f"Ошибка при отмене задачи: {e}"
 
 
 # Commands
-@router.message(Command(commands=['start', 'help']))
+
+@router.message(Command(commands=['start']))
 async def send_welcome(message: types.Message):
-    await message.answer("Привет! Я бот для SSH подключения.\n\n"
-                         "Доступные команды:\n"
-                         "/connect - Подключиться к серверу\n"
-                         "/disconnect - Отключиться от сервера\n"
-                         "/execute - Выполнить команду на сервере\n"
-                         "/upload - Загрузить файл на сервер\n"
-                         "/download - Скачать файл с сервера\n"
-                         "/submit_job - Отправить задачу на выполнение\n"
-                         "/show_queue - Просмотр очереди задач\n"
-                         "/cancel_job - Отменить задачу")
+    await message.answer(
+        "Привет! Я бот для SSH подключения.\n\n"
+        "Для начала работы подключитесь к серверу используя  команду /connect"
+    )
+
+
+@router.message(Command(commands=['help']))
+async def send_info(message: types.Message):
+    await message.answer(
+        "Доступные команды:\n"
+        "/connect - Подключиться к серверу.\n"
+        "/disconnect - Отключиться от сервера.\n"
+        "/execute - Выполнить команду на сервере.\n"
+        "/upload - Загрузить файл на сервер.\n"
+        "/download - Скачать файл с сервера.\n"
+        "/submit_job - Отправить задачу на выполнение.\n"
+        "/show_queue - Просмотр очереди задач.\n"
+        "/cancel_job - Отменить задачу.\n"
+        "/set_monitoring - Установить путь для мониторинга файла.\n"
+        "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+        "/stop_monitoring - Остановить мониторинг файла.\n"
+        "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
+    )
+
 
 
 @router.message(Command(commands=['connect']))
@@ -148,6 +110,21 @@ async def process_password(message: types.Message, state: FSMContext):
             ssh_client.connect(hostname=host, username=username, password=password, port=port)
             user_ssh_clients[user_id] = ssh_client
             await message.answer("Успешное подключение к серверу.")
+            await message.answer(
+                "Доступные команды:\n"
+                "/connect - Подключиться к серверу.\n"
+                "/disconnect - Отключиться от сервера.\n"
+                "/execute - Выполнить команду на сервере.\n"
+                "/upload - Загрузить файл на сервер.\n"
+                "/download - Скачать файл с сервера.\n"
+                "/submit_job - Отправить задачу на выполнение.\n"
+                "/show_queue - Просмотр очереди задач.\n"
+                "/cancel_job - Отменить задачу.\n"
+                "/set_monitoring - Установить путь для мониторинга файла.\n"
+                "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+                "/stop_monitoring - Остановить мониторинг файла.\n"
+                "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
+            )
         except Exception as e:
             await message.answer(f"Ошибка подключения: {e}")
     else:
@@ -206,8 +183,23 @@ async def start_monitoring(message: types.Message):
         await message.answer("Monitoring path not set. Use /set_monitoring first.")
         return
     monitoring_path = saved_connection_details[str(user_id)]['monitoring_path']
-    asyncio.create_task(monitor_file(user_id, monitoring_path))
+    task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
+    monitoring_tasks[user_id] = task
     await message.answer("Started monitoring.")
+
+
+@router.message(Command(commands=['stop_monitoring']))
+async def stop_monitoring(message: types.Message):
+    user_id = message.from_user.id
+    if user_id in monitoring_tasks:
+        task = monitoring_tasks[user_id]
+        task.cancel()
+        del monitoring_tasks[user_id]  # Remove the task from the dictionary after cancellation
+        await message.answer("Monitoring has been stopped.")
+    else:
+        await message.answer("No active monitoring found.")
+
+
 
 @router.message(Command(commands=['execute']))
 async def execute_command(message: types.Message, state: FSMContext):
