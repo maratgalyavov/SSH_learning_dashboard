@@ -96,7 +96,7 @@ def setup_handlers(router: Router):
             await callback_query.message.answer("Отправьте ваш .pem файл")
             await state.set_state(CommandState.awaiting_pem_file)
 
-    @router.message(F.content_type == ContentType.DOCUMENT, state=CommandState.awaiting_pem_file)
+    @router.message(state=CommandState.awaiting_pem_file)
     async def receive_pem_file(message: types.Message, state: FSMContext):
         document = message.document
         if not document.file_name.endswith('.pem'):
