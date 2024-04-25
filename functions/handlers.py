@@ -96,15 +96,64 @@ def setup_handlers(router: Router):
 
     @router.message(CommandState.awaiting_pem_file)
     async def receive_pem_file(message: types.Message, state: FSMContext):
-        document = message.document
-        if not document.file_name.endswith('.pem'):
-            await message.answer("Пожалуйста, отправьте файл с расширением .pem")
-            return
-        file_path = f'./downloads/{document.file_name}'
-        await message.document.download(destination=file_path)
-        await state.update_data(pem_file=file_path)
-        await state.set_state(CommandState.awaiting_ssh_details)
-        await message.answer("Введите данные для подключения в формате: username host [port]")
+        try:
+            document = message.document
+            file_id = document.file_id
+            file_name = document.file_name
+            if not document.file_name.endswith('.pem'):
+                await message.answer("Пожалуйста, отправьте файл с расширением .pem")
+                return
+            file_path = f'./downloads/{document.file_name}'
+            os.makedirs('./downloads', exist_ok=True)
+
+            file = await bot.get_file(file_id)
+            file_path_telegram = file.file_path
+
+            await bot.download_file(file_path_telegram, destination=file_path)
+            await state.update_data(pem_file=file_path)
+            await state.set_state(CommandState.awaiting_ssh_details)
+            await message.answer("Введите данные для подключения в формате: username host [port]")
+        except Exception as e:
+            pass
+
+        # try:
+        #     document = message.document
+        #     file_id = document.file_id
+        #     file_name = document.file_name
+        #     file_path = f'./downloads/{file_name}'
+        #
+        #     logging.info(f"Received document with file_id: {file_id}")
+        #     logging.info(f"Local file path: {file_path}")
+        # except Exception as e:
+        #     response = f"An error occurred: {e}"
+        #     logging.error(response)
+        #
+        #     await message.answer("ошибка загрузки файла, попробуйте еще раз")
+        #
+        # try:
+        #     state.clear()
+        #     os.makedirs('./downloads', exist_ok=True)
+        #     logging.info(f"Ensured that the downloads directory exists.")
+        #
+        #     file = await bot.get_file(file_id)
+        #     file_path_telegram = file.file_path
+        #     logging.info(f"File path on Telegram servers: {file_path_telegram}")
+        #
+        #     await bot.download_file(file_path_telegram, destination=file_path)
+        #     logging.info(f"File downloaded locally to {file_path}")
+        #
+        #     if os.path.exists(file_path):
+        #         user_id = message.from_user.id
+        #         ssh_client = user_ssh_clients[user_id]
+        #         logging.info(f"File {file_name} exists, ready to upload.")
+        #         remote_path = f'{file_name}'  # Modify as needed
+        #         response = await upload_file(ssh_client, file_path, remote_path)
+        #         logging.info(f"File uploaded to remote server at path: {remote_path}")
+        #     else:
+        #         response = f"Error: File {file_name} was not found locally after download."
+        #         logging.error(response)
+
+
 
     @router.message(CommandState.awaiting_ssh_details)
     async def connect_with_pem(message: types.Message, state: FSMContext):
