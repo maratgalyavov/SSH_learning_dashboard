@@ -34,6 +34,8 @@ class CommandState(StatesGroup):
     awaiting_password = State()
     setting_monitoring_path = State()
     monitoring = State()
+    waiting_for_job = State()
+    waiting_for_download_filename = State()
 
 def setup_handlers(router: Router):
     from main import bot, saved_connection_details
@@ -65,8 +67,9 @@ def setup_handlers(router: Router):
             response = response[:max_length] + "\n... (output truncated)"
         await message.answer(response)
 
-    @router.message(lambda message: message.text and not message.text.startswith('/') and message.from_user.id in user_ssh_clients)
-    async def process_submit_job_command(message: types.Message):
+    @router.message(CommandState.waiting_for_job)
+    async def process_submit_job_command(message: types.Message, state: FSMContext):
+        await state.clear()
         job_script_path = message.text
         user_id = message.from_user.id
         ssh_client = user_ssh_clients[user_id]
@@ -74,16 +77,18 @@ def setup_handlers(router: Router):
         await message.answer(response)
 
     @router.message(Command(commands=['submit_job']))
-    async def submit_job_command(message: types.Message):
+    async def submit_job_command(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         if user_id not in user_ssh_clients:
             await message.answer("Сначала подключитесь к серверу.")
             return
         ssh_client = user_ssh_clients[user_id]
+        await state.set_state(CommandState.waiting_for_job)
         await message.answer("Введите путь к скрипту задачи на сервере:")
 
-    @router.message(lambda message: message.text and not message.text.startswith('/') and message.from_user.id in user_ssh_clients)
-    async def process_download_file_command(message: types.Message):
+    @router.message(CommandState.waiting_for_download_filename)
+    async def process_download_file_command(message: types.Message, state: FSMContext):
+        await state.clear()
         remote_file_path = message.text
         local_file_path = f'./downloads/{remote_file_path.split("/")[-1]}'
 
@@ -100,12 +105,13 @@ def setup_handlers(router: Router):
             await message.answer(response)
 
     @router.message(Command(commands=['download']))
-    async def download_file_command(message: types.Message):
+    async def download_file_command(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         if user_id not in user_ssh_clients:
             await message.answer("Сначала подключитесь к серверу.")
             return
         ssh_client = user_ssh_clients[user_id]
+        await state.set_state(CommandState.waiting_for_download_filename)
         await message.answer("Введите путь к файлу на сервере, который хотите скачать:")
 
     @router.message(F.document)
@@ -246,6 +252,21 @@ def setup_handlers(router: Router):
             ssh_client.connect(hostname=host, username=username, password=password, port=port)
             user_ssh_clients[user_id] = ssh_client
             await message.answer("Успешное подключение к серверу.")
+            await message.answer(
+                "Доступные команды:\n"
+                "/connect - Подключиться к серверу.\n"
+                "/disconnect - Отключиться от сервера.\n"
+                "/execute - Выполнить команду на сервере.\n"
+                "/upload - Загрузить файл на сервер.\n"
+                "/download - Скачать файл с сервера.\n"
+                "/submit_job - Отправить задачу на выполнение.\n"
+                "/show_queue - Просмотр очереди задач.\n"
+                "/cancel_job - Отменить задачу.\n"
+                "/set_monitoring - Установить путь для мониторинга файла.\n"
+                "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+                "/stop_monitoring - Остановить мониторинг файла.\n"
+                "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
+            )
             # Save connection details without the password for later re-authentication
             save_connection_details(user_id, host, username, port)
         except Exception as e:
