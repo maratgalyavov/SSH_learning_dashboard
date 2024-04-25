@@ -82,6 +82,7 @@ def setup_handlers(router: Router):
         #     await message.answer(
         #         "Введите данные для подключения в формате: username host password, port(опционально) либо пришлите файл .pem")
 
+    @router.callback_query(F.callback_data.any())
     async def process_auth_method(callback_query: types.CallbackQuery, state: FSMContext):
         if callback_query.data == "auth_password":
             await callback_query.message.edit_reply_markup()
