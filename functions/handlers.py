@@ -75,7 +75,7 @@ def setup_handlers(router: Router):
         markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
         await message.answer("Выберите метод аутентификации:", reply_markup=markup)
         #
-        # if str(user_id) in saved_connection_details:
+        # if user_id in saved_connection_details:
         #     await state.set_state(CommandState.awaiting_password)
         #     await message.answer("Введите ваш пароль для подключения:")
         # else:
@@ -147,8 +147,8 @@ def setup_handlers(router: Router):
         password = message.text
         await state.clear()
         # Retrieve saved connection details
-        if str(user_id) in saved_connection_details:
-            details = saved_connection_details[str(user_id)]
+        if user_id in saved_connection_details:
+            details = saved_connection_details[user_id]
             host = details['host']
             username = details['username']
             port = details.get('port', 2222)
@@ -237,18 +237,18 @@ def setup_handlers(router: Router):
     async def process_monitoring_path(message: types.Message, state: FSMContext):
         monitoring_path = message.text
         user_id = message.from_user.id
-        saved_connection_details[str(user_id)]['monitoring_path'] = monitoring_path
+        saved_connection_details[user_id]['monitoring_path'] = monitoring_path
         await state.clear()
         await message.answer(f"Monitoring path set to: {monitoring_path}. Use /start_monitoring to begin.")
 
     @router.message(Command(commands=['start_monitoring']))
     async def start_monitoring(message: types.Message):
         user_id = message.from_user.id
-        if str(user_id) not in saved_connection_details or 'monitoring_path' not in saved_connection_details[
-            str(user_id)]:
+        if user_id not in saved_connection_details or 'monitoring_path' not in saved_connection_details[
+            user_id]:
             await message.answer("Monitoring path not set. Use /set_monitoring first.")
             return
-        monitoring_path = saved_connection_details[str(user_id)]['monitoring_path']
+        monitoring_path = saved_connection_details[user_id]['monitoring_path']
         task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
         monitoring_tasks[user_id] = task
         await message.answer("Started monitoring.")
