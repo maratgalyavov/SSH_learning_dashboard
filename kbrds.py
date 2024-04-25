@@ -22,6 +22,6 @@ keyboard_connected = ReplyKeyboardMarkup(
 
 keyboard_connecting = [
   [
-    InlineKeyboardButton("Подключиться с паролем", callback_data="auth_password"),
-    InlineKeyboardButton("Подключиться с .pem ключом", callback_data="auth_pem")
+    InlineKeyboardButton(text="Подключиться с паролем", callback_data="auth_password"),
+    InlineKeyboardButton(text="Подключиться с .pem ключом", callback_data="auth_pem")
   ]]
