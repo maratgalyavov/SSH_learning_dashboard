@@ -1,5 +1,6 @@
 aiogram==3.5.0
 config==0.5.1
+kaleido==0.2.1
 matplotlib==3.8.4
 numpy==1.26.4
 pandas==2.2.2
