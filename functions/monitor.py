@@ -24,8 +24,8 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
         try:
             sftp = ssh_client.open_sftp()
             attrs = sftp.stat(file_path)
-            # if last_modified is None or attrs.st_mtime > last_modified:
-            if True:
+            if last_modified is None or attrs.st_mtime > last_modified:
+            # if True:
                 # File has changed, update last_modified and process file
                 last_modified = attrs.st_mtime
                 local_path = f"./tmp/{user_id}_temp.csv"
@@ -53,7 +53,7 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
             logging.error(f"Error monitoring file: {e}")
             # Handle error and consider a cooldown or stop
 
-        await asyncio.sleep(60)  # Sleep for 1 minute before checking again
+        await asyncio.sleep(30)  # Sleep for 1 minute before checking again
 
 
 def plot_and_send_file(file_path):
@@ -61,6 +61,7 @@ def plot_and_send_file(file_path):
     plt.figure()
     plt.plot(df['train_pred'], label='Train Prediction')
     plt.plot(df['test_pred'], label='Test Prediction')
+    plt.yscale('log')
     plt.title('Predictions Over Time')
     plt.legend()
 
