@@ -31,6 +31,7 @@ from functions.file_handling import upload_file, download_file
 
 
 class CommandState(StatesGroup):
+    awaiting_credentials = State()
     awaiting_ssh_details = State()
     awaiting_pem_file = State()
     waiting_for_command = State()
@@ -70,10 +71,22 @@ def setup_handlers(router: Router):
         )
 
     @router.message(Command(commands=['connect']))
+    async def connect_handler(message: types.Message, state: FSMContext):
+        user_id = message.from_user.id
+        await message.answer("Введите данные для подключения в формате: username host ")
+        await state.set_state(CommandState.awaiting_credentials)
+
+    @router.message(CommandState.awaiting_credentials)
     async def connect_ssh(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
-        markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
-        await message.answer("Выберите метод аутентификации:", reply_markup=markup)
+        parts = message.text.split()
+        if len(parts) == 2:
+            await state.update_data(login=parts[0], host=parts[1])
+            markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
+            await message.answer("Выберите метод аутентификации:", reply_markup=markup)
+            await state.clear()
+        else:
+            await message.answer("Введите данные для подключения в формате: username host ")
         #
         # if user_id in saved_connection_details:
         #     await state.set_state(CommandState.awaiting_password)
@@ -82,13 +95,13 @@ def setup_handlers(router: Router):
         #     await message.answer(
         #         "Введите данные для подключения в формате: username host password, port(опционально) либо пришлите файл .pem")
 
-    @router.callback_query(F.data == 'auth_pem')
+    @router.callback_query(F.data == 'auth_pem' or F.data == 'auth_password')
     async def process_auth_method(callback: CallbackQuery, state: FSMContext):
         if callback.data == "auth_password":
             await callback.message.edit_reply_markup()
             await state.set_state(CommandState.awaiting_password)
             await callback.message.answer(
-                "Введите данные для подключения в формате: username host password [port]")
+                "Введите данные для подключения в формате: password [port]")
         elif callback.data == "auth_pem":
             await callback.message.edit_reply_markup()
             await callback.message.answer("Отправьте ваш .pem файл")
@@ -112,46 +125,70 @@ def setup_handlers(router: Router):
             await bot.download_file(file_path_telegram, destination=file_path)
             await state.update_data(pem_file=file_path)
             await state.set_state(CommandState.awaiting_ssh_details)
-            await message.answer("Введите данные для подключения в формате: username host password [port]")
+            await message.answer("Введите данные для подключения в формате: password [port]")
         except Exception as e:
             pass
-
-
 
     @router.message(CommandState.awaiting_ssh_details)
     async def connect_with_pem(message: types.Message, state: FSMContext):
         data = await state.get_data()
         pem_file = data['pem_file']
+        username = data['login']
+        host = data['host']
         parts = message.text.split()
-        username = parts[0]
-        host = parts[1]
-        password = parts[2]
-        port = int(parts[3]) if len(parts) > 3 else 2222
+        if len(parts) == 2 or len(parts) == 1:
+            password = parts[0]
+            port = int(parts[1]) if len(parts) > 1 else 2222
 
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            key = paramiko.RSAKey.from_private_key_file(pem_file, password)
-            ssh_client.connect(hostname=host, username=username, pkey=key, port=port)
-            user_id = message.from_user.id
-            user_ssh_clients[user_id] = ssh_client
-            await message.answer("Успешное подключение к серверу.")
-            await state.clear()
-        except Exception as e:
-            await message.answer(f"Ошибка подключения: {e}")
-            await state.clear()
+            ssh_client = paramiko.SSHClient()
+            ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+                key = paramiko.RSAKey.from_private_key_file(pem_file, password)
+                ssh_client.connect(hostname=host, username=username, pkey=key, port=port)
+                user_id = message.from_user.id
+                user_ssh_clients[user_id] = ssh_client
+                await message.answer("Успешное подключение к серверу.")
+                await message.answer(
+                    "Доступные команды:\n"
+                    "/connect - Подключиться к серверу.\n"
+                    "/disconnect - Отключиться от сервера.\n"
+                    "/execute - Выполнить команду на сервере.\n"
+                    "/upload - Загрузить файл на сервер.\n"
+                    "/download - Скачать файл с сервера.\n"
+                    "/submit_job - Отправить задачу на выполнение.\n"
+                    "/show_queue - Просмотр очереди задач.\n"
+                    "/cancel_job - Отменить задачу.\n"
+                    "/set_monitoring - Установить путь для мониторинга файла.\n"
+                    "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+                    "/stop_monitoring - Остановить мониторинг файла.\n"
+                    "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
+                )
+                await state.clear()
+            except Exception as e:
+                await message.answer(f"Ошибка подключения: {e}")
+                await state.clear()
+        else:
+            await message.answer("Введите данные для подключения в формате: password [port]")
 
     @router.message(CommandState.awaiting_password)
     async def process_password(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
-        password = message.text
-        await state.clear()
+        # password = message.text
+        data = await state.get_data()
+        pem_file = data['pem_file']
+        username = data['login']
+        host = data['host']
+        parts = message.text.split()
+        if len(parts) == 2 or len(parts) == 1:
+            await state.clear()
+            password = parts[0]
+            port = int(parts[1]) if len(parts) > 1 else 2222
         # Retrieve saved connection details
-        if user_id in saved_connection_details:
-            details = saved_connection_details[user_id]
-            host = details['host']
-            username = details['username']
-            port = details.get('port', 2222)
+        # if user_id in saved_connection_details:
+        #     details = saved_connection_details[user_id]
+        #     host = details['host']
+        #     username = details['username']
+        #     port = details.get('port', 2222)
 
             # Attempt to connect
             ssh_client = paramiko.SSHClient()
@@ -178,49 +215,55 @@ def setup_handlers(router: Router):
             except Exception as e:
                 await message.answer(f"Ошибка подключения: {e}")
         else:
-            await message.answer(
-                "Нет сохраненных данных подключения. Пожалуйста, используйте команду /connect для настройки.")
+            await message.answer("Введите данные для подключения в формате: password [port]")
+        # else:
+        #     await message.answer(
+        #         "Нет сохраненных данных подключения. Пожалуйста, используйте команду /connect для настройки.")
 
-    @router.message(lambda message: message.text and ' ' in message.text and message.from_user.id not in user_ssh_clients)
-    async def process_connect_command(message: types.Message):
-        user_id = message.from_user.id
-        try:
-            parts = message.text.split(' ', 3)
-            username, host, password = parts[:3]
-            port = int(parts[3]) if len(parts) > 3 else 2222
-        except ValueError:
-            await message.answer("Неверный формат. Пожалуйста, используйте формат: username host password [port]")
-            return
-
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            ssh_client.connect(hostname=host, username=username, password=password, port=port)
-            user_ssh_clients[user_id] = ssh_client
-            await message.answer("Успешное подключение к серверу.")
-            await message.answer(
-                "Доступные команды:\n"
-                "/connect - Подключиться к серверу.\n"
-                "/disconnect - Отключиться от сервера.\n"
-                "/execute - Выполнить команду на сервере.\n"
-                "/upload - Загрузить файл на сервер.\n"
-                "/download - Скачать файл с сервера.\n"
-                "/submit_job - Отправить задачу на выполнение.\n"
-                "/show_queue - Просмотр очереди задач.\n"
-                "/cancel_job - Отменить задачу.\n"
-                "/set_monitoring - Установить путь для мониторинга файла.\n"
-                "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
-                "/stop_monitoring - Остановить мониторинг файла.\n"
-                "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
-            )
-            # Save connection details without the password for later re-authentication
-            save_connection_details(user_id, host, username, port)
-        except Exception as e:
-            await message.answer(f"Ошибка подключения: {e}")
+    # @router.message(lambda message: message.text and ' ' in message.text and message.from_user.id not in user_ssh_clients)
+    # async def process_connect_command(message: types.Message):
+    #     user_id = message.from_user.id
+    #     try:
+    #         parts = message.text.split(' ', 3)
+    #         username, host, password = parts[:3]
+    #         port = int(parts[3]) if len(parts) > 3 else 2222
+    #     except ValueError:
+    #         await message.answer("Неверный формат. Пожалуйста, используйте формат: username host password [port]")
+    #         return
+    #
+    #     ssh_client = paramiko.SSHClient()
+    #     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    #     try:
+    #         ssh_client.connect(hostname=host, username=username, password=password, port=port)
+    #         user_ssh_clients[user_id] = ssh_client
+    #         await message.answer("Успешное подключение к серверу.")
+    #         await message.answer(
+    #             "Доступные команды:\n"
+    #             "/connect - Подключиться к серверу.\n"
+    #             "/disconnect - Отключиться от сервера.\n"
+    #             "/execute - Выполнить команду на сервере.\n"
+    #             "/upload - Загрузить файл на сервер.\n"
+    #             "/download - Скачать файл с сервера.\n"
+    #             "/submit_job - Отправить задачу на выполнение.\n"
+    #             "/show_queue - Просмотр очереди задач.\n"
+    #             "/cancel_job - Отменить задачу.\n"
+    #             "/set_monitoring - Установить путь для мониторинга файла.\n"
+    #             "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+    #             "/stop_monitoring - Остановить мониторинг файла.\n"
+    #             "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
+    #         )
+    #         # Save connection details without the password for later re-authentication
+    #         save_connection_details(user_id, host, username, port)
+    #     except Exception as e:
+    #         await message.answer(f"Ошибка подключения: {e}")
 
     @router.message(Command(commands=['disconnect']))
     async def disconnect_ssh(message: types.Message):
         user_id = message.from_user.id
+        if user_id in monitoring_tasks:
+            task = monitoring_tasks[user_id]
+            task.cancel()
+            del monitoring_tasks[user_id]
         if user_id in user_ssh_clients:
             user_ssh_clients[user_id].close()
             del user_ssh_clients[user_id]

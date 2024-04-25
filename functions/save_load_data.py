@@ -1,8 +1,8 @@
 import json
 
 
-def save_connection_details(user_id, host, username, port=22):
-    connection_details = {str(user_id): {'host': host, 'username': username, 'port': port}}
+def save_connection_details(user_id, host, username, port=2222):
+    connection_details = {user_id: {'host': host, 'username': username, 'port': port}}
     try:
         with open('ssh_connections.json', 'r') as file:
             existing_details = json.load(file)
