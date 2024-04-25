@@ -96,7 +96,7 @@ def setup_handlers(router: Router):
             await callback_query.message.answer("Отправьте ваш .pem файл")
             await state.set_state(CommandState.awaiting_pem_file)
 
-    @router.message(state=CommandState.awaiting_pem_file)
+    @router.message(CommandState.awaiting_pem_file)
     async def receive_pem_file(message: types.Message, state: FSMContext):
         document = message.document
         if not document.file_name.endswith('.pem'):
@@ -108,7 +108,7 @@ def setup_handlers(router: Router):
         await state.set_state(CommandState.awaiting_ssh_details)
         await message.answer("Введите данные для подключения в формате: username host [port]")
 
-    @router.message(state=CommandState.awaiting_ssh_details)
+    @router.message(CommandState.awaiting_ssh_details)
     async def connect_with_pem(message: types.Message, state: FSMContext):
         data = await state.get_data()
         pem_file = data['pem_file']
