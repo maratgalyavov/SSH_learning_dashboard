@@ -112,46 +112,9 @@ def setup_handlers(router: Router):
             await bot.download_file(file_path_telegram, destination=file_path)
             await state.update_data(pem_file=file_path)
             await state.set_state(CommandState.awaiting_ssh_details)
-            await message.answer("Введите данные для подключения в формате: username host [port]")
+            await message.answer("Введите данные для подключения в формате: username host password [port]")
         except Exception as e:
             pass
-
-        # try:
-        #     document = message.document
-        #     file_id = document.file_id
-        #     file_name = document.file_name
-        #     file_path = f'./downloads/{file_name}'
-        #
-        #     logging.info(f"Received document with file_id: {file_id}")
-        #     logging.info(f"Local file path: {file_path}")
-        # except Exception as e:
-        #     response = f"An error occurred: {e}"
-        #     logging.error(response)
-        #
-        #     await message.answer("ошибка загрузки файла, попробуйте еще раз")
-        #
-        # try:
-        #     state.clear()
-        #     os.makedirs('./downloads', exist_ok=True)
-        #     logging.info(f"Ensured that the downloads directory exists.")
-        #
-        #     file = await bot.get_file(file_id)
-        #     file_path_telegram = file.file_path
-        #     logging.info(f"File path on Telegram servers: {file_path_telegram}")
-        #
-        #     await bot.download_file(file_path_telegram, destination=file_path)
-        #     logging.info(f"File downloaded locally to {file_path}")
-        #
-        #     if os.path.exists(file_path):
-        #         user_id = message.from_user.id
-        #         ssh_client = user_ssh_clients[user_id]
-        #         logging.info(f"File {file_name} exists, ready to upload.")
-        #         remote_path = f'{file_name}'  # Modify as needed
-        #         response = await upload_file(ssh_client, file_path, remote_path)
-        #         logging.info(f"File uploaded to remote server at path: {remote_path}")
-        #     else:
-        #         response = f"Error: File {file_name} was not found locally after download."
-        #         logging.error(response)
 
 
 
@@ -162,12 +125,13 @@ def setup_handlers(router: Router):
         parts = message.text.split()
         username = parts[0]
         host = parts[1]
-        port = int(parts[2]) if len(parts) > 2 else 22
+        password = parts[2]
+        port = int(parts[3]) if len(parts) > 2 else 2222
 
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            key = paramiko.RSAKey.from_private_key_file(pem_file)
+            key = paramiko.RSAKey.from_private_key_file(pem_file, password)
             ssh_client.connect(hostname=host, username=username, pkey=key, port=port)
             user_id = message.from_user.id
             user_ssh_clients[user_id] = ssh_client
@@ -187,7 +151,7 @@ def setup_handlers(router: Router):
             details = saved_connection_details[str(user_id)]
             host = details['host']
             username = details['username']
-            port = details.get('port', 22)
+            port = details.get('port', 2222)
 
             # Attempt to connect
             ssh_client = paramiko.SSHClient()
