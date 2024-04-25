@@ -16,6 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, InputFile, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
+import kbrds
 from functions.save_load_data import save_connection_details, load_connection_details
 from functions.monitor import monitor_file
 
@@ -71,11 +72,7 @@ def setup_handlers(router: Router):
     @router.message(Command(commands=['connect']))
     async def connect_ssh(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("Подключиться с паролем", callback_data="auth_password"),
-            InlineKeyboardButton("Подключиться с .pem ключом", callback_data="auth_pem")
-        )
+        markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
         await message.answer("Выберите метод аутентификации:", reply_markup=markup)
         #
         # if str(user_id) in saved_connection_details:
