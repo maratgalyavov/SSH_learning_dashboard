@@ -56,18 +56,45 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
         await asyncio.sleep(30)  # Sleep for 1 minute before checking again
 
 
+# def plot_and_send_file(file_path):
+#     df = pd.read_csv(file_path)
+#     plt.figure()
+#     plt.plot(df['train_pred'], label='Train Prediction')
+#     plt.plot(df['test_pred'], label='Test Prediction')
+#     plt.yscale('log')
+#     plt.title('Predictions Over Time')
+#     plt.legend()
+#
+#     buf = BytesIO()
+#     plt.savefig(buf, format='png')
+#     buf.seek(0)
+#
+#     plt.close()
+#     return buf
+
+import plotly.graph_objects as go
+from plotly.io import to_image
+
 def plot_and_send_file(file_path):
     df = pd.read_csv(file_path)
-    plt.figure()
-    plt.plot(df['train_pred'], label='Train Prediction')
-    plt.plot(df['test_pred'], label='Test Prediction')
-    plt.yscale('log')
-    plt.title('Predictions Over Time')
-    plt.legend()
 
+    # Create traces
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df['train_pred'], mode='lines', name='Train Prediction'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['test_pred'], mode='lines', name='Test Prediction'))
+
+    # Update layout
+    fig.update_layout(
+        title='Predictions Over Time',
+        xaxis_title='Time',
+        yaxis_title='Prediction',
+        yaxis_type="log",  # Logarithmic scale
+        legend_title="Legend"
+    )
+
+    # Save to BytesIO object
     buf = BytesIO()
-    plt.savefig(buf, format='png')
+    buf.write(to_image(fig, format='png'))
     buf.seek(0)
 
-    plt.close()
     return buf

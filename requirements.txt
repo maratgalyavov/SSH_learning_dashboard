@@ -4,3 +4,4 @@ matplotlib==3.8.4
 numpy==1.26.4
 pandas==2.2.2
 paramiko==3.4.0
+plotly==5.21.0

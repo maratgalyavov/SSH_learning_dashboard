@@ -81,7 +81,10 @@ def setup_handlers(router: Router):
         user_id = message.from_user.id
         parts = message.text.split()
         if len(parts) == 2:
-            await state.update_data(login=parts[0], host=parts[1])
+            if user_id not in saved_connection_details:
+                saved_connection_details[user_id] = {}
+            saved_connection_details[user_id]["login"]=parts[0]
+            saved_connection_details[user_id]["host"]=parts[1]
             markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
             await message.answer("Выберите метод аутентификации:", reply_markup=markup)
             await state.clear()
@@ -131,10 +134,11 @@ def setup_handlers(router: Router):
 
     @router.message(CommandState.awaiting_ssh_details)
     async def connect_with_pem(message: types.Message, state: FSMContext):
+        user_id = message.from_user.id
         data = await state.get_data()
         pem_file = data['pem_file']
-        username = data['login']
-        host = data['host']
+        username = saved_connection_details[user_id]["login"]
+        host = saved_connection_details[user_id]["host"]
         parts = message.text.split()
         if len(parts) == 2 or len(parts) == 1:
             password = parts[0]
