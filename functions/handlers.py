@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, InputFile, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InputFile, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 import kbrds
 from functions.save_load_data import save_connection_details, load_connection_details
@@ -82,16 +82,16 @@ def setup_handlers(router: Router):
         #     await message.answer(
         #         "Введите данные для подключения в формате: username host password, port(опционально) либо пришлите файл .pem")
 
-    @router.callback_query(F.callback_data.any())
-    async def process_auth_method(callback_query: types.CallbackQuery, state: FSMContext):
-        if callback_query.data == "auth_password":
-            await callback_query.message.edit_reply_markup()
+    @router.callback_query(F.data.any())
+    async def process_auth_method(callback: CallbackQuery, state: FSMContext):
+        if callback.data == "auth_password":
+            await callback.message.edit_reply_markup()
             await state.set_state(CommandState.awaiting_password)
-            await callback_query.message.answer(
+            await callback.message.answer(
                 "Введите данные для подключения в формате: username host password [port]")
-        elif callback_query.data == "auth_pem":
-            await callback_query.message.edit_reply_markup()
-            await callback_query.message.answer("Отправьте ваш .pem файл")
+        elif callback.data == "auth_pem":
+            await callback.message.edit_reply_markup()
+            await callback.message.answer("Отправьте ваш .pem файл")
             await state.set_state(CommandState.awaiting_pem_file)
 
     @router.message(CommandState.awaiting_pem_file)
