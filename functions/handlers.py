@@ -126,7 +126,7 @@ def setup_handlers(router: Router):
         username = parts[0]
         host = parts[1]
         password = parts[2]
-        port = int(parts[3]) if len(parts) > 2 else 2222
+        port = int(parts[3]) if len(parts) > 3 else 2222
 
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
