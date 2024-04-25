@@ -237,6 +237,8 @@ def setup_handlers(router: Router):
     async def process_monitoring_path(message: types.Message, state: FSMContext):
         monitoring_path = message.text
         user_id = message.from_user.id
+        if user_id not in saved_connection_details:
+            saved_connection_details[user_id] = {}
         saved_connection_details[user_id]['monitoring_path'] = monitoring_path
         await state.clear()
         await message.answer(f"Monitoring path set to: {monitoring_path}. Use /start_monitoring to begin.")
