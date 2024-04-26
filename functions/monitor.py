@@ -55,6 +55,3 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
             # Handle error and consider a cooldown or stop
 
         await asyncio.sleep(30)  # Sleep for 1 minute before checking again
-
-import plotly.graph_objects as go
-from plotly.io import to_image

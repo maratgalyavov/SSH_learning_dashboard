@@ -22,6 +22,6 @@ keyboard_initial = InlineKeyboardMarkup(row_width=1, inline_keyboard=[[
 
 keyboard_connecting = [
   [
-    InlineKeyboardButton(text="Подключиться с паролем", callback_data="auth_password"),
-    InlineKeyboardButton(text="Подключиться с .pem ключом", callback_data="auth_pem")
+    InlineKeyboardButton(text="пароль", callback_data="auth_password"),
+    InlineKeyboardButton(text=".pem ключ", callback_data="auth_pem")
   ]]

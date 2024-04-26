@@ -64,8 +64,7 @@ def setup_handlers(router: Router):
             "/submit_job - Отправить задачу на выполнение.\n"
             "/show_queue - Просмотр очереди задач.\n"
             "/cancel_job - Отменить задачу.\n"
-            "/set_monitoring - Установить путь для мониторинга файла.\n"
-            "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+            "/add_monitoring - Начать мониторинг файла по установленному пути.\n"
             "/stop_monitoring - Остановить мониторинг файла.\n"
             "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
         )
@@ -163,8 +162,7 @@ def setup_handlers(router: Router):
                     "/submit_job - Отправить задачу на выполнение.\n"
                     "/show_queue - Просмотр очереди задач.\n"
                     "/cancel_job - Отменить задачу.\n"
-                    "/set_monitoring - Установить путь для мониторинга файла.\n"
-                    "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+                    "/add_monitoring - Начать мониторинг файла по установленному пути.\n"
                     "/stop_monitoring - Остановить мониторинг файла.\n"
                     "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
                 )
@@ -212,8 +210,7 @@ def setup_handlers(router: Router):
                     "/submit_job - Отправить задачу на выполнение.\n"
                     "/show_queue - Просмотр очереди задач.\n"
                     "/cancel_job - Отменить задачу.\n"
-                    "/set_monitoring - Установить путь для мониторинга файла.\n"
-                    "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
+                    "/add_monitoring - Начать мониторинг файла по установленному пути.\n"
                     "/stop_monitoring - Остановить мониторинг файла.\n"
                     "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
                 )
@@ -265,6 +262,9 @@ def setup_handlers(router: Router):
     @router.message(Command(commands=['disconnect']))
     async def disconnect_ssh(message: types.Message):
         user_id = message.from_user.id
+        if user_id not in user_ssh_clients:
+            await message.answer("Сначала подключитесь к серверу.")
+            return
         if user_id in monitoring_tasks:
             task = monitoring_tasks[user_id]
             task.cancel()
@@ -276,10 +276,14 @@ def setup_handlers(router: Router):
         else:
             await message.answer("Соединение не установлено.")
 
-    @router.message(Command(commands=['set_monitoring']))
+    @router.message(Command(commands=['add_monitoring']))
     async def set_monitoring_path(message: types.Message, state: FSMContext):
+        user_id = message.from_user.id
+        if user_id not in user_ssh_clients:
+            await message.answer("Сначала подключитесь к серверу.")
+            return
         await state.set_state(CommandState.setting_monitoring_path)
-        await message.answer("Please enter the full path of the file to monitor:")
+        await message.answer("Пожалуйста, введите полный путь к файлу для мониторинга:")
 
     @router.message(CommandState.setting_monitoring_path)
     async def process_monitoring_path(message: types.Message, state: FSMContext):
@@ -289,31 +293,48 @@ def setup_handlers(router: Router):
             saved_connection_details[user_id] = {}
         saved_connection_details[user_id]['monitoring_path'] = monitoring_path
         await state.clear()
-        await message.answer(f"Monitoring path set to: {monitoring_path}. Use /start_monitoring to begin.")
-
-    @router.message(Command(commands=['start_monitoring']))
-    async def start_monitoring(message: types.Message):
-        user_id = message.from_user.id
-        if user_id not in saved_connection_details or 'monitoring_path' not in saved_connection_details[
-            user_id]:
-            await message.answer("Monitoring path not set. Use /set_monitoring first.")
-            return
-        monitoring_path = saved_connection_details[user_id]['monitoring_path']
+        await message.answer(
+            f"Путь для мониторинга установлен: {monitoring_path}")
         task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
         monitoring_tasks[user_id] = task
-        await message.answer("Started monitoring.")
+        await message.answer("Мониторинг начат.")
 
+    # @router.message(Command(commands=['stop_monitoring']))
+    # async def stop_monitoring(message: types.Message):
+    #     user_id = message.from_user.id
+    #     if user_id not in user_ssh_clients:
+    #         await message.answer("Сначала подключитесь к серверу.")
+    #         return
+    #     if user_id in monitoring_tasks:
+    #         task = monitoring_tasks[user_id]
+    #         task.cancel()
+    #         del monitoring_tasks[user_id]  # Remove the task from the dictionary after cancellation
+    #         await message.answer("Мониторинг остановлен.")
+    #     else:
+    #         await message.answer("Активный мониторинг не найден.")
     @router.message(Command(commands=['stop_monitoring']))
     async def stop_monitoring(message: types.Message):
         user_id = message.from_user.id
-        if user_id in monitoring_tasks:
-            task = monitoring_tasks[user_id]
-            task.cancel()
-            del monitoring_tasks[user_id]  # Remove the task from the dictionary after cancellation
-            await message.answer("Monitoring has been stopped.")
+        if user_id in monitoring_tasks and monitoring_tasks[user_id]:
+            kb = []
+            for task_id, task in monitoring_tasks[user_id].items():
+                kb.append([InlineKeyboardButton(text=f"Остановить задачу {task_id}", callback_data=f"stop_{task_id}")])
+            markup = InlineKeyboardMarkup(inline_keyboard=kb)
+            await message.answer("Выберите задачу мониторинга для остановки:", reply_markup=markup)
         else:
-            await message.answer("No active monitoring found.")
+            await message.answer("Активные задачи мониторинга не найдены.")
 
+    @router.callback_query(F.data.startswith('stop_'))
+    async def stop_selected_monitoring(callback_query: CallbackQuery):
+        task_id = int(callback_query.data.split('_')[1])
+        user_id = callback_query.from_user.id
+        if task_id in monitoring_tasks[user_id]:
+            monitoring_tasks[user_id][task_id].cancel()
+            del monitoring_tasks[user_id][task_id]
+            await callback_query.message.answer(f"Задача мониторинга {task_id} остановлена.")
+            await callback_query.message.edit_reply_markup()  # Optional: Remove the inline buttons
+        else:
+            await callback_query.message.answer("Задача не найдена или уже остановлена.")
 
     @router.message(Command(commands=['cancel_job']))
     async def cancel_job_command(message: types.Message):
@@ -409,7 +430,7 @@ def setup_handlers(router: Router):
             logging.info(f"Received document with file_id: {file_id}")
             logging.info(f"Local file path: {file_path}")
         except Exception as e:
-            response = f"An error occurred: {e}"
+            response = f"Произошла ошибка: {e}"
             logging.error(response)
 
             await message.answer("ошибка загрузки файла, попробуйте еще раз")
@@ -434,11 +455,11 @@ def setup_handlers(router: Router):
                 response = await upload_file(ssh_client, file_path, remote_path)
                 logging.info(f"File uploaded to remote server at path: {remote_path}")
             else:
-                response = f"Error: File {file_name} was not found locally after download."
+                response = f"Ошибка: Файл {file_name} не найден локально после загрузки."
                 logging.error(response)
 
         except Exception as e:
-            response = f"An error occurred: {e}"
+            response = f"Произошла ошибка: {e}"
             logging.error(response)
 
         await message.answer(response)
@@ -456,7 +477,8 @@ def setup_handlers(router: Router):
     @router.message(CommandState.waiting_for_command)
     async def process_execute_command(message: types.Message, state: FSMContext):
         if message.text.startswith('/'):
-            await message.answer("Looks like you entered a bot command. If you want to execute an SSH command, please don't start with '/'.")
+            await message.answer(
+                "Похоже, вы ввели команду бота. Если вы хотите выполнить команду SSH, пожалуйста, не начинайте с '/'.")
             return
 
         command = message.text
