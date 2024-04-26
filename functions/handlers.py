@@ -296,8 +296,12 @@ def setup_handlers(router: Router):
         await message.answer(
             f"Путь для мониторинга установлен: {monitoring_path}")
         task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
-        monitoring_tasks[user_id] = task
-        await message.answer("Мониторинг начат.")
+        task_id = id(task)
+        monitoring_tasks[user_id][task_id] = task
+        await message.answer(f"Мониторинг начат для файла {monitoring_path}. ID задачи: {task_id}")
+        # task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
+        # monitoring_tasks[user_id] = task
+        # await message.answer("Мониторинг начат.")
 
     # @router.message(Command(commands=['stop_monitoring']))
     # async def stop_monitoring(message: types.Message):
