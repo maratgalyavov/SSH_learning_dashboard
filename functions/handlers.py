@@ -98,17 +98,18 @@ def setup_handlers(router: Router):
         #     await message.answer(
         #         "Введите данные для подключения в формате: username host password, port(опционально) либо пришлите файл .pem")
 
-    @router.callback_query(F.data == 'auth_pem' or F.data == 'auth_password')
+    @router.callback_query(F.data == 'auth_pem')
     async def process_auth_method(callback: CallbackQuery, state: FSMContext):
-        if callback.data == "auth_password":
-            await callback.message.edit_reply_markup()
-            await state.set_state(CommandState.awaiting_password)
-            await callback.message.answer(
-                "Введите данные для подключения в формате: password [port]")
-        elif callback.data == "auth_pem":
-            await callback.message.edit_reply_markup()
-            await callback.message.answer("Отправьте ваш .pem файл")
-            await state.set_state(CommandState.awaiting_pem_file)
+        await callback.message.edit_reply_markup()
+        await callback.message.answer("Отправьте ваш .pem файл")
+        await state.set_state(CommandState.awaiting_pem_file)
+
+    @router.callback_query(F.data == 'auth_password')
+    async def process_auth_method(callback: CallbackQuery, state: FSMContext):
+        await callback.message.edit_reply_markup()
+        await state.set_state(CommandState.awaiting_password)
+        await callback.message.answer(
+            "Введите данные для подключения в формате: password [port]")
 
     @router.message(CommandState.awaiting_pem_file)
     async def receive_pem_file(message: types.Message, state: FSMContext):

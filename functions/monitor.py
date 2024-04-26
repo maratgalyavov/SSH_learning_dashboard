@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import asyncio
 import os
+from functions import plotting
 
 def ensure_directory_exists(path):
     os.makedirs(path, exist_ok=True)
@@ -33,7 +34,7 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
                 sftp.get(file_path, local_path)
 
                 # Plot and prepare to send the file
-                buf = plot_and_send_file(local_path)
+                buf = plotting.plot_and_send_file(local_path)
                 photo = BufferedInputFile(buf.getvalue(), filename="plot.png")
 
                 # Delete the last sent photo if it exists
@@ -55,46 +56,5 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
 
         await asyncio.sleep(30)  # Sleep for 1 minute before checking again
 
-
-# def plot_and_send_file(file_path):
-#     df = pd.read_csv(file_path)
-#     plt.figure()
-#     plt.plot(df['train_pred'], label='Train Prediction')
-#     plt.plot(df['test_pred'], label='Test Prediction')
-#     plt.yscale('log')
-#     plt.title('Predictions Over Time')
-#     plt.legend()
-#
-#     buf = BytesIO()
-#     plt.savefig(buf, format='png')
-#     buf.seek(0)
-#
-#     plt.close()
-#     return buf
-
 import plotly.graph_objects as go
 from plotly.io import to_image
-
-def plot_and_send_file(file_path):
-    df = pd.read_csv(file_path)
-
-    # Create traces
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df['train_pred'], mode='lines', name='Train Prediction'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['test_pred'], mode='lines', name='Test Prediction'))
-
-    # Update layout
-    fig.update_layout(
-        title='Predictions Over Time',
-        xaxis_title='Time',
-        yaxis_title='Prediction',
-        yaxis_type="log",  # Logarithmic scale
-        legend_title="Legend"
-    )
-
-    # Save to BytesIO object
-    buf = BytesIO()
-    buf.write(to_image(fig, format='png'))
-    buf.seek(0)
-
-    return buf
