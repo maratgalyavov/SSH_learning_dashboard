@@ -9,7 +9,7 @@ def plot_and_send_file(file_path):
 
     # Assuming your dataframe has pairs of 'train_X' and 'test_X' columns for each prediction type X
     fig = go.Figure()
-    prediction_types = set(col.split('_')[1] for col in df.columns if '_' in col)
+    prediction_types = set(col.split('_')[1] for col in df.columns if col.startswith(('train_', 'test_')))
 
     for ptype in prediction_types:
         train_col = f'train_{ptype}'
