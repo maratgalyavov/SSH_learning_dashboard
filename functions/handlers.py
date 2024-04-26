@@ -72,18 +72,19 @@ def setup_handlers(router: Router):
     @router.message(Command(commands=['connect']))
     async def connect_handler(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
-        await message.answer("Введите данные для подключения в формате: username host ")
+        await message.answer("Введите данные для подключения в формате: username host [port]")
         await state.set_state(CommandState.awaiting_credentials)
 
     @router.message(CommandState.awaiting_credentials)
     async def connect_ssh(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         parts = message.text.split()
-        if len(parts) == 2:
+        if len(parts) == 2 or len(parts) == 3:
             if user_id not in saved_connection_details:
                 saved_connection_details[user_id] = {}
             saved_connection_details[user_id]["login"]=parts[0]
             saved_connection_details[user_id]["host"]=parts[1]
+            saved_connection_details[user_id]["port"]=int(parts[2]) if len(parts) > 2 else 2222
             markup = InlineKeyboardMarkup(inline_keyboard=kbrds.keyboard_connecting)
             await message.answer("Выберите метод аутентификации:", reply_markup=markup)
             await state.clear()
@@ -108,7 +109,7 @@ def setup_handlers(router: Router):
         await callback.message.edit_reply_markup()
         await state.set_state(CommandState.awaiting_password)
         await callback.message.answer(
-            "Введите данные для подключения в формате: password [port]")
+            "Введите данные для подключения в формате: password")
 
     @router.message(CommandState.awaiting_pem_file)
     async def receive_pem_file(message: types.Message, state: FSMContext):
@@ -128,7 +129,7 @@ def setup_handlers(router: Router):
             await bot.download_file(file_path_telegram, destination=file_path)
             await state.update_data(pem_file=file_path)
             await state.set_state(CommandState.awaiting_ssh_details)
-            await message.answer("Введите данные для подключения в формате: password [port]")
+            await message.answer("Введите данные для подключения в формате: password")
         except Exception as e:
             pass
 
@@ -139,10 +140,10 @@ def setup_handlers(router: Router):
         pem_file = data['pem_file']
         username = saved_connection_details[user_id]["login"]
         host = saved_connection_details[user_id]["host"]
+        port = saved_connection_details[user_id]["port"]
         parts = message.text.split()
-        if len(parts) == 2 or len(parts) == 1:
+        if len(parts) == 1:
             password = parts[0]
-            port = int(parts[1]) if len(parts) > 1 else 2222
 
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -171,29 +172,19 @@ def setup_handlers(router: Router):
                 await message.answer(f"Ошибка подключения: {e}")
                 await state.clear()
         else:
-            await message.answer("Введите данные для подключения в формате: password [port]")
+            await message.answer("Введите данные для подключения в формате: password")
 
     @router.message(CommandState.awaiting_password)
     async def process_password(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         # password = message.text
-        data = await state.get_data()
-        pem_file = data['pem_file']
-        username = data['login']
-        host = data['host']
+        username = saved_connection_details[user_id]["login"]
+        host = saved_connection_details[user_id]["host"]
+        port = saved_connection_details[user_id]["port"]
         parts = message.text.split()
-        if len(parts) == 2 or len(parts) == 1:
+        if len(parts) == 1:
             await state.clear()
             password = parts[0]
-            port = int(parts[1]) if len(parts) > 1 else 2222
-        # Retrieve saved connection details
-        # if user_id in saved_connection_details:
-        #     details = saved_connection_details[user_id]
-        #     host = details['host']
-        #     username = details['username']
-        #     port = details.get('port', 2222)
-
-            # Attempt to connect
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             try:
@@ -217,7 +208,7 @@ def setup_handlers(router: Router):
             except Exception as e:
                 await message.answer(f"Ошибка подключения: {e}")
         else:
-            await message.answer("Введите данные для подключения в формате: password [port]")
+            await message.answer("Введите данные для подключения в формате: password")
         # else:
         #     await message.answer(
         #         "Нет сохраненных данных подключения. Пожалуйста, используйте команду /connect для настройки.")
