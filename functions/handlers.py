@@ -294,6 +294,7 @@ def setup_handlers(router: Router):
             kb = []
             for task_id, task in monitoring_tasks[user_id].items():
                 kb.append([InlineKeyboardButton(text=f"Остановить задачу {task_id}", callback_data=f"stop_{task_id}")])
+            kb.append([InlineKeyboardButton(text=f"Остановить все задачи", callback_data=f"st_all")])
             markup = InlineKeyboardMarkup(inline_keyboard=kb)
             await message.answer("Выберите задачу мониторинга для остановки:", reply_markup=markup)
         else:
@@ -310,6 +311,15 @@ def setup_handlers(router: Router):
             await callback_query.message.edit_reply_markup()  # Optional: Remove the inline buttons
         else:
             await callback_query.message.answer("Задача не найдена или уже остановлена.")
+
+    @router.callback_query(F.data.startswith('st_all'))
+    async def stop_selected_monitoring(callback_query: CallbackQuery):
+        user_id = callback_query.from_user.id
+        for task_id in monitoring_tasks[user_id]:
+            monitoring_tasks[user_id][task_id].cancel()
+            del monitoring_tasks[user_id][task_id]
+        await callback_query.message.answer(f"Задачи мониторинга остановлены.")
+        await callback_query.message.edit_reply_markup()  # Optional: Remove the inline buttons
 
     @router.message(Command(commands=['cancel_job']))
     async def cancel_job_command(message: types.Message):
