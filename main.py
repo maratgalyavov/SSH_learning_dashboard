@@ -12,7 +12,6 @@ from config import API_TOKEN
 
 saved_connection_details = load_connection_details()
 
-
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)

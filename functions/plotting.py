@@ -1,55 +1,68 @@
+import json
+import os
+
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.io import to_image
 from io import BytesIO
 
+from plotly.subplots import make_subplots
 
-def plot_and_send_file(file_path):
-    df = pd.read_csv(file_path)
 
-    # Assuming your dataframe has pairs of 'train_X' and 'test_X' columns for each prediction type X
+def ensure_directory_exists(path):
+    os.makedirs(path, exist_ok=True)
+
+def read_data(file_path):
+    file_ext = os.path.splitext(file_path)[-1].lower()
+    if file_ext == ".csv":
+        return pd.read_csv(file_path)
+    elif file_ext == ".json":
+        with open(file_path, 'r') as file:
+            data = json.load(file)
+            return pd.DataFrame(data)
+    elif file_ext in [".log", ".txt"]:
+        data = []
+        with open(file_path, 'r') as file:
+            for line in file:
+                elements = line.strip().split()
+                epoch = int(elements[1])  # Assuming 'Epoch' is always the first word and followed by the epoch number
+                values = elements[2:]  # Rest are values
+                # Process pairs of values
+                row = {'Epoch': epoch}
+                for i in range(0, len(values), 2):
+                    key = values[i]
+                    value = float(values[i + 1])
+                    row[key] = value
+                data.append(row)
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df.set_index('Epoch', inplace=True)
+        return df
+    else:
+        raise ValueError(f"Unsupported file type: {file_ext}")
+
+def plot_data(df, metrics):
     fig = go.Figure()
-    prediction_types = set(col.split('_')[1] for col in df.columns if col.startswith(('train_', 'test_')))
+    for col in df.columns:
+        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col))
+    fig.update_layout(title="Data Over Time", xaxis_title="Epoch", yaxis_title="Value", yaxis_type='log')
+    num_plots = len(metrics)
+    fig = make_subplots(rows=num_plots, cols=1, subplot_titles=[f"Metrics Group {i + 1}" for i in range(num_plots)])
 
-    for ptype in prediction_types:
-        train_col = f'train_{ptype}'
-        test_col = f'test_{ptype}'
-        if train_col in df.columns and test_col in df.columns:
-            fig.add_trace(go.Scatter(x=df.index, y=df[train_col], mode='lines', name=f'Train {ptype}'))
-            fig.add_trace(go.Scatter(x=df.index, y=df[test_col], mode='lines', name=f'Test {ptype}'))
+    for i, metrics in enumerate(metrics):
+        for metric in metrics:
+            if metric in df.columns:
+                fig.add_trace(
+                    go.Scatter(x=df.index, y=df[metric], mode='lines', name=metric),
+                    row=i + 1, col=1
+                )
 
-    # Update layout with the latest test/train values for the last epoch
-    latest_train = df.iloc[-1][[f'train_{ptype}' for ptype in prediction_types]].to_dict()
-    latest_test = df.iloc[-1][[f'test_{ptype}' for ptype in prediction_types]].to_dict()
-    latest_values_text = "<br>".join(
-        [f"Latest {ptype} - Train: {latest_train[f'train_{ptype}']}, Test: {latest_test[f'test_{ptype}']}" for ptype in
-         prediction_types])
+    return fig
 
-    fig.update_layout(
-        title='Predictions Over Time',
-        xaxis_title='Epoch',
-        yaxis_title='Value',
-        yaxis_type='log',  # Set to 'linear' if log scale is not desired
-        legend_title='Legend',
-        annotations=[{
-            'text': latest_values_text,
-            'align': 'left',
-            'showarrow': False,
-            'xref': 'paper',
-            'yref': 'paper',
-            'x': 1.0,
-            'y': -0.3,
-            'bordercolor': 'black',
-            'borderwidth': 1,
-            'bgcolor': 'white',
-            'xanchor': 'right',
-            'yanchor': 'bottom',
-            'font': {'size': 12}
-        }]
-    )
-
+def plot_and_send_file(file_path, metrics):
+    df = read_data(file_path)
+    fig = plot_data(df, metrics)
     buf = BytesIO()
-    buf.write(to_image(fig, format='png', scale=1))  # You can adjust 'scale' for higher resolution
+    buf.write(to_image(fig, format='png', scale=1))
     buf.seek(0)
-
     return buf

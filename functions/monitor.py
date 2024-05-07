@@ -13,7 +13,7 @@ from functions import plotting
 def ensure_directory_exists(path):
     os.makedirs(path, exist_ok=True)
 
-async def monitor_file(user_id, file_path, bot, ssh_clients):
+async def monitor_file(user_id, file_path, bot, ssh_clients, metrics):
     ssh_client = ssh_clients.get(user_id)
     if not ssh_client:
         logging.error("SSH client not available for user_id {}".format(user_id))
@@ -34,7 +34,7 @@ async def monitor_file(user_id, file_path, bot, ssh_clients):
                 sftp.get(file_path, local_path)
 
                 # Plot and prepare to send the file
-                buf = plotting.plot_and_send_file(local_path)
+                buf = plotting.plot_and_send_file(local_path, metrics)
                 photo = BufferedInputFile(buf.getvalue(), filename="plot.png")
 
                 # Delete the last sent photo if it exists

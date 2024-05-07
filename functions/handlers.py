@@ -3,32 +3,24 @@ import os
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.dispatcher.router import Router
-from aiogram.enums import ContentType
 from aiogram.filters import Command
 import paramiko
 import asyncio
-
-
-import pandas as pd
-import matplotlib.pyplot as plt
 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, InputFile, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 import kbrds
-from functions.save_load_data import save_connection_details, load_connection_details
 from functions.monitor import monitor_file
 
-from config import user_ssh_clients
 router = Router()
 
 from functions.scheduler_interface import submit_job, show_queue, cancel_job
-from config import API_TOKEN
 from config import user_ssh_clients
 from config import monitoring_tasks
 from functions.file_handling import upload_file, download_file
-
+from functions.metrics import get_metrics
 
 class CommandState(StatesGroup):
     awaiting_credentials = State()
@@ -41,6 +33,8 @@ class CommandState(StatesGroup):
     waiting_for_job = State()
     waiting_for_download_filename = State()
     waiting_for_upload_file = State()
+    awaiting_metric_selection = State()
+    confirming = State()
 
 def setup_handlers(router: Router):
     from main import bot, saved_connection_details
@@ -90,13 +84,6 @@ def setup_handlers(router: Router):
             await state.clear()
         else:
             await message.answer("Введите данные для подключения в формате: username host ")
-        #
-        # if user_id in saved_connection_details:
-        #     await state.set_state(CommandState.awaiting_password)
-        #     await message.answer("Введите ваш пароль для подключения:")
-        # else:
-        #     await message.answer(
-        #         "Введите данные для подключения в формате: username host password, port(опционально) либо пришлите файл .pem")
 
     @router.callback_query(F.data == 'auth_pem')
     async def process_auth_method(callback: CallbackQuery, state: FSMContext):
@@ -155,7 +142,6 @@ def setup_handlers(router: Router):
                 await message.answer("Успешное подключение к серверу.")
                 await message.answer(
                     "Доступные команды:\n"
-                    "/connect - Подключиться к серверу.\n"
                     "/disconnect - Отключиться от сервера.\n"
                     "/execute - Выполнить команду на сервере.\n"
                     "/upload - Загрузить файл на сервер.\n"
@@ -209,46 +195,6 @@ def setup_handlers(router: Router):
                 await message.answer(f"Ошибка подключения: {e}")
         else:
             await message.answer("Введите данные для подключения в формате: password")
-        # else:
-        #     await message.answer(
-        #         "Нет сохраненных данных подключения. Пожалуйста, используйте команду /connect для настройки.")
-
-    # @router.message(lambda message: message.text and ' ' in message.text and message.from_user.id not in user_ssh_clients)
-    # async def process_connect_command(message: types.Message):
-    #     user_id = message.from_user.id
-    #     try:
-    #         parts = message.text.split(' ', 3)
-    #         username, host, password = parts[:3]
-    #         port = int(parts[3]) if len(parts) > 3 else 2222
-    #     except ValueError:
-    #         await message.answer("Неверный формат. Пожалуйста, используйте формат: username host password [port]")
-    #         return
-    #
-    #     ssh_client = paramiko.SSHClient()
-    #     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    #     try:
-    #         ssh_client.connect(hostname=host, username=username, password=password, port=port)
-    #         user_ssh_clients[user_id] = ssh_client
-    #         await message.answer("Успешное подключение к серверу.")
-    #         await message.answer(
-    #             "Доступные команды:\n"
-    #             "/connect - Подключиться к серверу.\n"
-    #             "/disconnect - Отключиться от сервера.\n"
-    #             "/execute - Выполнить команду на сервере.\n"
-    #             "/upload - Загрузить файл на сервер.\n"
-    #             "/download - Скачать файл с сервера.\n"
-    #             "/submit_job - Отправить задачу на выполнение.\n"
-    #             "/show_queue - Просмотр очереди задач.\n"
-    #             "/cancel_job - Отменить задачу.\n"
-    #             "/set_monitoring - Установить путь для мониторинга файла.\n"
-    #             "/start_monitoring - Начать мониторинг файла по установленному пути.\n"
-    #             "/stop_monitoring - Остановить мониторинг файла.\n"
-    #             "\nИспользуйте эти команды для управления вашими SSH подключениями и задачами."
-    #         )
-    #         # Save connection details without the password for later re-authentication
-    #         save_connection_details(user_id, host, username, port)
-    #     except Exception as e:
-    #         await message.answer(f"Ошибка подключения: {e}")
 
     @router.message(Command(commands=['disconnect']))
     async def disconnect_ssh(message: types.Message):
@@ -278,37 +224,69 @@ def setup_handlers(router: Router):
 
     @router.message(CommandState.setting_monitoring_path)
     async def process_monitoring_path(message: types.Message, state: FSMContext):
+        SUPPORTED_FORMATS = ['.csv', '.json', '.log', '.txt']
         monitoring_path = message.text
         user_id = message.from_user.id
         if user_id not in saved_connection_details:
             saved_connection_details[user_id] = {}
         saved_connection_details[user_id]['monitoring_path'] = monitoring_path
+
+        file_extension = os.path.splitext(monitoring_path)[1]
+        if file_extension.lower() not in SUPPORTED_FORMATS:
+            await message.answer(
+                "Формат файла не поддерживается, поддерживаемые форматы: " + ', '.join(SUPPORTED_FORMATS))
+        else:
+            await state.clear()
+            await message.answer(
+                f"Путь для мониторинга установлен: {monitoring_path}")
+            metrics = get_metrics(user_id, monitoring_path, bot, user_ssh_clients)
+            await state.update_data(available_metrics=metrics)
+            await message.answer(
+                f"Доступные метрики: {', '.join(metrics)}\nВведите метрики, которые вы хотите отобразить, разделенные запятыми (например, 'Value1, Value2').")
+            await state.set_state(CommandState.awaiting_metric_selection)
+
+
+    @router.message(CommandState.awaiting_metric_selection)
+    async def process_metrics(message: types.Message, state: FSMContext):
+        user_data = await state.get_data()
+        available_metrics = user_data['available_metrics']
+        selected_metrics = message.text.split(',')
+        selected_metrics = [metric.strip() for metric in selected_metrics if metric.strip() in available_metrics]
+
+        if not selected_metrics:
+            await message.answer("Не выбраны действительные метрики. Пожалуйста, попробуйте снова.")
+            return
         await state.clear()
-        await message.answer(
-            f"Путь для мониторинга установлен: {monitoring_path}")
-        task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
+        plot_configurations = user_data.get('plot_configurations', [])
+        plot_configurations.append(selected_metrics)
+        await state.update_data(plot_configurations=plot_configurations)
+        await state.update_data(available_metrics=available_metrics)
+        markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Да", callback_data="add_more_yes"),
+             InlineKeyboardButton(text="Нет", callback_data="add_more_no")]
+        ])
+        await message.answer("Настройка одного графика завершена. Хотите добавить еще одну конфигурацию? (да/нет)",
+                             reply_markup=markup)
+
+    @router.callback_query(F.data == 'add_more_yes')
+    async def handle_add_more(callback_query: types.CallbackQuery, state: FSMContext):
+        await callback_query.message.edit_text("Введите другой набор метрик для графика, разделенных запятыми.")
+        await state.set_state(CommandState.awaiting_metric_selection)
+
+    @router.callback_query(F.data == 'add_more_no')
+    async def handle_no_more(callback_query: types.CallbackQuery, state: FSMContext):
+        user_id = callback_query.from_user.id
+        user_data = await state.get_data()
+        monitoring_path = saved_connection_details[user_id]['monitoring_path']
+        await callback_query.message.edit_text("Настройка графика завершена.")
+        metrics = user_data.get('plot_configurations', [])
+        task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients, metrics))
         task_id = id(task)
         if user_id not in monitoring_tasks.keys():
             monitoring_tasks[user_id] = {}
         monitoring_tasks[user_id][task_id] = task
-        await message.answer(f"Мониторинг начат для файла {monitoring_path}. ID задачи: {task_id}")
-        # task = asyncio.create_task(monitor_file(user_id, monitoring_path, bot, user_ssh_clients))
-        # monitoring_tasks[user_id] = task
-        # await message.answer("Мониторинг начат.")
+        await bot.send_message(user_id, f"Мониторинг начат для файла {monitoring_path}. ID задачи: {task_id}")
 
-    # @router.message(Command(commands=['stop_monitoring']))
-    # async def stop_monitoring(message: types.Message):
-    #     user_id = message.from_user.id
-    #     if user_id not in user_ssh_clients:
-    #         await message.answer("Сначала подключитесь к серверу.")
-    #         return
-    #     if user_id in monitoring_tasks:
-    #         task = monitoring_tasks[user_id]
-    #         task.cancel()
-    #         del monitoring_tasks[user_id]  # Remove the task from the dictionary after cancellation
-    #         await message.answer("Мониторинг остановлен.")
-    #     else:
-    #         await message.answer("Активный мониторинг не найден.")
     @router.message(Command(commands=['stop_monitoring']))
     async def stop_monitoring(message: types.Message):
         user_id = message.from_user.id
