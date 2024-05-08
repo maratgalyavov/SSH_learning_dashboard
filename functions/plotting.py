@@ -1,5 +1,6 @@
 import json
 import os
+import math
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -11,6 +12,7 @@ from plotly.subplots import make_subplots
 
 def ensure_directory_exists(path):
     os.makedirs(path, exist_ok=True)
+
 
 def read_data(file_path):
     file_ext = os.path.splitext(file_path)[-1].lower()
@@ -41,23 +43,47 @@ def read_data(file_path):
     else:
         raise ValueError(f"Unsupported file type: {file_ext}")
 
+
 def plot_data(df, metrics):
-    fig = go.Figure()
-    for col in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col))
-    fig.update_layout(title="Data Over Time", xaxis_title="Epoch", yaxis_title="Value", yaxis_type='log')
     num_plots = len(metrics)
-    fig = make_subplots(rows=num_plots, cols=1, subplot_titles=[f"Metrics Group {i + 1}" for i in range(num_plots)])
+    num_cols = math.ceil(math.sqrt(num_plots))
+    num_rows = math.ceil(num_plots / num_cols)
+
+    fig = make_subplots(
+        rows=num_rows,
+        cols=num_cols,
+        subplot_titles=[f"Metrics Group {i + 1}" for i in range(num_plots)],
+        vertical_spacing=0.1,
+    )
 
     for i, metrics in enumerate(metrics):
+        row = i // num_cols + 1
+        col = i % num_cols + 1
+
         for metric in metrics:
             if metric in df.columns:
                 fig.add_trace(
                     go.Scatter(x=df.index, y=df[metric], mode='lines', name=metric),
-                    row=i + 1, col=1
+                    row=row, col=col
                 )
+        fig.update_xaxes(title_text="Epoch", row=row, col=col)
+        fig.update_yaxes(title_text="Value", type='log', row=row, col=col)
+
+
+    for i in range(num_plots, num_rows * num_cols):
+        row = i // num_cols + 1
+        col = i % num_cols + 1
+        fig.update_layout({f'xaxis{i + 1}': {'visible': False}, f'yaxis{i + 1}': {'visible': False}})
+
+    fig.update_layout(
+        title="Data Over Time",
+        xaxis_title="Epoch",
+        yaxis_title="Value",
+        height=num_rows * 400,  # Adjust the height based on the number of rows
+    )
 
     return fig
+
 
 def plot_and_send_file(file_path, metrics):
     df = read_data(file_path)
